@@ -67,7 +67,7 @@ export function TransactionDialog({
 
   useEffect(() => {
     if (!(options as readonly string[]).includes(category)) {
-      setCategory(type === "income" ? "Salary" : "Other");
+      setCategory(type === "income" ? "Salary" : type === "self" ? "Transfers" : "Other");
     }
   }, [type, options, category]);
 
@@ -97,20 +97,20 @@ export function TransactionDialog({
           </DialogHeader>
 
           <div className="grid gap-4">
-            <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
-              {(["expense", "income"] as const).map((value) => (
+            <div className="grid grid-cols-3 gap-1 rounded-md bg-muted p-1">
+              {(["expense", "income", "self"] as const).map((value) => (
                 <button
                   key={value}
                   type="button"
                   onClick={() => setType(value)}
                   className={cn(
-                    "h-10 rounded-sm text-sm font-medium capitalize transition-colors duration-150",
+                    "h-10 rounded-sm text-sm font-medium transition-colors duration-150",
                     type === value
                       ? "bg-card text-foreground shadow-[var(--shadow-border)]"
                       : "text-muted-foreground",
                   )}
                 >
-                  {value}
+                  {value === "expense" ? "Out" : value === "income" ? "In" : "Self"}
                 </button>
               ))}
             </div>

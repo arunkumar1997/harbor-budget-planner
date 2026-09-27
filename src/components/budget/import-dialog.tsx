@@ -59,11 +59,13 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
     try {
       const lower = file.name.toLowerCase();
       if (lower.endsWith(".xls") || lower.endsWith(".xlsx") || lower.endsWith(".csv")) {
-        setStatus("Reading spreadsheet…");
+        setStatus(pw ? "Unlocking spreadsheet…" : "Reading spreadsheet…");
         const { parseSpreadsheet } = await import("@/lib/parse-spreadsheet");
-        const result = await parseSpreadsheet(file);
+        const result = await parseSpreadsheet(file, pw);
         setPendingFile(null);
         setNeedPassword(false);
+        setPassword("");
+        setPwError("");
         showDrafts(result.transactions);
         return;
       }
@@ -76,8 +78,8 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
       await parseLines(lines, rows);
     } catch (error) {
       const name = (error as { name?: string })?.name;
-      if (name === "PdfPasswordError") {
-        // Encrypted PDF — reveal the password field and hold the file for retry.
+      if (name === "PdfPasswordError" || name === "SpreadsheetEncryptedError") {
+        // Encrypted file — reveal the password field and hold the file for retry.
         setPendingFile(file);
         setNeedPassword(true);
         setPwError((error as { wrong?: boolean })?.wrong ? "Wrong password — try again." : "");
@@ -206,9 +208,9 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
           <div className="grid gap-3">
             {needPassword ? (
               <div className="grid gap-2 rounded-lg border border-border bg-muted/60 p-3">
-                <p className="text-sm font-medium">This PDF is password-protected</p>
+                <p className="text-sm font-medium">This file is password-protected</p>
                 <p className="text-xs text-muted-foreground">
-                  Enter the password your bank uses to open the statement.
+                  Enter the password your bank uses to open this statement.
                 </p>
                 <div className="flex gap-2">
                   <Input
@@ -255,7 +257,7 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
                     : "Drop a PDF or Excel file, or browse"}
               </span>
               <span className="text-xs text-muted-foreground">
-                PDF or Excel (.xls/.xlsx) · Excel is most accurate · password-protected PDFs supported
+                PDF or Excel (.xls/.xlsx) · Excel is most accurate · password-protected files supported
               </span>
             </button>
             <input

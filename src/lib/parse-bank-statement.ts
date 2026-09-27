@@ -1,5 +1,6 @@
 import { categorizePayee } from "@/lib/categories";
 import { roundMoney } from "@/lib/format";
+import { detectBank, holderFirstName, isSelfNarration } from "@/lib/statement-common";
 import type { DraftTransaction } from "@/lib/budget-store";
 import type { ParsedStatement } from "@/lib/parse-statement";
 import type { PdfRow } from "@/lib/pdf-text";
@@ -85,10 +86,13 @@ export function parseBankStatementLines(lines: string[]): ParsedStatement {
   }
 
   // Direction from balance movement; first row falls back to narration hint.
+  const headerText = lines.slice(0, 20).join(" ");
+  const bank = detectBank(headerText);
+  const holder = holderFirstName(headerText);
   const transactions: DraftTransaction[] = [];
   let prevBalance: number | null = null;
   for (const row of raw) {
-    let type: "income" | "expense";
+    let type: "income" | "expense" | "self";
     if (prevBalance === null) {
       type = CREDIT_HINT.test(row.narration) ? "income" : "expense";
     } else {
@@ -97,13 +101,15 @@ export function parseBankStatementLines(lines: string[]): ParsedStatement {
     prevBalance = row.balance;
 
     const payee = bankPayee(row.narration);
+    if (isSelfNarration(row.narration, holder, type === "expense")) type = "self";
     // Categorise on the narration minus the rail prefix (UPI-/NEFT-/…) so the
     // merchant keywords match; keep the balance-derived type as source of truth.
     const catText = row.narration.replace(
       /^(UPI|NEFT|IMPS|RTGS|POS|ATW|ATM|ACH|NACH|MMT|IB|INB|CMS|INT|EMI)[-\s:]+/i,
       "",
     );
-    const { category } = categorizePayee(catText, type);
+    const category =
+      type === "self" ? "Transfers" : categorizePayee(catText, type).category;
     transactions.push({
       type,
       amount: row.amount,
@@ -111,6 +117,7 @@ export function parseBankStatementLines(lines: string[]): ParsedStatement {
       payee,
       date: row.date,
       source: "pdf",
+      bank,
     });
   }
 
@@ -140,6 +147,16 @@ export function parseBankStatementRows(rows: PdfRow[]): ParsedStatement {
   const MONEY = /^\d[\d,]*\.\d{2}$/; // 471.00 / 28,796.78 / 1,35,000.00
   const isDate = (s: string) => /^\d{2}\/\d{2}\/\d{2}$/.test(s);
 
+  // Bank + holder come from the metadata above the table, not the transaction
+  // rows (which embed counterparties' IFSC codes).
+  const headerRowIdx = rows.indexOf(header);
+  const headerText = rows
+    .slice(0, headerRowIdx >= 0 ? headerRowIdx : 20)
+    .map((r) => r.text)
+    .join(" ");
+  const bank = detectBank(headerText);
+  const holder = holderFirstName(headerText);
+
   const transactions: DraftTransaction[] = [];
   let skipped = 0;
 
@@ -165,7 +182,7 @@ export function parseBankStatementRows(rows: PdfRow[]): ParsedStatement {
     const wd = monies.find((m) => m.x < dX - 5);
     const dep = monies.find((m) => m.x >= dX - 5 && m.x < cX - 5);
 
-    let type: "income" | "expense";
+    let type: "income" | "expense" | "self";
     let amount: number;
     if (wd && wd.v > 0) {
       type = "expense";
@@ -199,11 +216,13 @@ export function parseBankStatementRows(rows: PdfRow[]): ParsedStatement {
       .join(" ")
       .trim();
     const payee = bankPayee(narration);
+    if (isSelfNarration(narration, holder, type === "expense")) type = "self";
     const catText = narration.replace(
       /^(UPI|NEFT|IMPS|RTGS|POS|ATW|ATM|ACH|NACH|MMT|IB|INB|CMS|INT|EMI)[-\s:]+/i,
       "",
     );
-    const { category } = categorizePayee(catText || payee, type);
+    const category =
+      type === "self" ? "Transfers" : categorizePayee(catText || payee, type).category;
     transactions.push({
       type,
       amount: roundMoney(amount),
@@ -211,6 +230,7 @@ export function parseBankStatementRows(rows: PdfRow[]): ParsedStatement {
       payee,
       date,
       source: "pdf",
+      bank,
     });
   }
 

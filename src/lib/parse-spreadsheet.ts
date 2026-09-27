@@ -1,12 +1,42 @@
 import { categorizePayee } from "@/lib/categories";
 import { roundMoney } from "@/lib/format";
 import { bankPayee } from "@/lib/parse-bank-statement";
-import type { DraftTransaction } from "@/lib/budget-store";
+import { detectBank, holderFirstName, isSelfNarration } from "@/lib/statement-common";
+import type { DraftTransaction, TxType } from "@/lib/budget-store";
 import type { ParsedStatement } from "@/lib/parse-statement";
 
 // Parses a bank ACCOUNT statement exported as .xls / .xlsx. A spreadsheet keeps
-// the columns intact, so this is the most reliable import: Withdrawal Amt. ->
-// expense, Deposit Amt. -> income, read straight from their columns.
+// the columns intact, so this is the most reliable import. It handles both
+// column namings seen on Indian statements:
+//   HDFC: Withdrawal Amt. / Deposit Amt. / Closing Balance
+//   SBI:  Debit / Credit / Balance
+// Debit/Withdrawal -> expense, Credit/Deposit -> income; self-transfers between
+// the user's own accounts are tagged "self" and excluded from in/out.
+
+export class SpreadsheetEncryptedError extends Error {
+  wrong: boolean;
+  constructor(wrong = false) {
+    super(wrong ? "Wrong spreadsheet password" : "Spreadsheet is password-protected");
+    this.name = "SpreadsheetEncryptedError";
+    this.wrong = wrong;
+  }
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 function toIso(raw: unknown): string | null {
   const s = String(raw ?? "").trim();
@@ -22,16 +52,47 @@ function toIso(raw: unknown): string | null {
 
 function num(v: unknown): number | null {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
-  const s = String(v ?? "").replace(/[,\s₹]/g, "").trim();
+  // strip currency, commas, and a trailing CR/DR marker
+  const s = String(v ?? "")
+    .replace(/[,\s₹]/g, "")
+    .replace(/(cr|dr)$/i, "")
+    .trim();
   if (!s) return null;
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
 
-export async function parseSpreadsheet(file: File): Promise<ParsedStatement> {
+function clean(s: unknown): string {
+  return String(s ?? "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export async function parseSpreadsheet(
+  file: File,
+  password?: string,
+): Promise<ParsedStatement> {
   const XLSX = await import("xlsx");
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: "array" });
+
+  let wb;
+  try {
+    wb = XLSX.read(buf, { type: "array" });
+  } catch (e) {
+    if (!/password|encrypt/i.test(String(e))) throw e;
+    // Encrypted workbook. Without a password, ask for one; with one, decrypt on
+    // the server (Node) and re-read.
+    if (!password) throw new SpreadsheetEncryptedError(false);
+    const { decryptSpreadsheet } = await import("@/lib/spreadsheet-decrypt");
+    const res = await decryptSpreadsheet({
+      data: { base64: bytesToBase64(new Uint8Array(buf)), password },
+    });
+    if (!res.ok || !res.base64) {
+      throw new SpreadsheetEncryptedError(res.error === "wrong_password");
+    }
+    wb = XLSX.read(base64ToBytes(res.base64), { type: "array" });
+  }
 
   const transactions: DraftTransaction[] = [];
   let skipped = 0;
@@ -45,26 +106,36 @@ export async function parseSpreadsheet(file: File): Promise<ParsedStatement> {
       defval: "",
     });
 
-    // Locate the header row carrying the bank's columns.
+    // Locate the header row and its columns (either bank's naming).
     let headerIdx = -1;
-    const col = { date: -1, narr: -1, wd: -1, dep: -1 };
+    const col = { date: -1, narr: -1, out: -1, in: -1 };
     for (let i = 0; i < rows.length; i += 1) {
       const cells = (rows[i] ?? []).map((c) => String(c).toLowerCase());
       const find = (re: RegExp) => cells.findIndex((c) => re.test(c));
-      const w = find(/withdrawal/);
-      const d = find(/deposit/);
-      const c = find(/closing/);
-      if (w >= 0 && d >= 0 && c >= 0) {
+      const out = find(/withdrawal|withdrawl|^debit$|\bdebit\b/);
+      const inc = find(/deposit|^credit$|\bcredit\b/);
+      const bal = find(/balance/);
+      if (out >= 0 && inc >= 0 && bal >= 0) {
         headerIdx = i;
         col.date = find(/^date/);
-        col.narr = find(/narration|description|particular/);
-        if (col.narr < 0) col.narr = 1;
-        col.wd = w;
-        col.dep = d;
+        col.narr = find(/narration|details|description|particular/);
+        if (col.narr < 0) col.narr = col.date >= 0 ? col.date + 1 : 1;
+        col.out = out;
+        col.in = inc;
         break;
       }
     }
     if (headerIdx < 0) continue;
+
+    // Identify bank + account holder from the metadata ABOVE the table only —
+    // transaction rows embed counterparties' IFSC codes (e.g. SBIN0…) that would
+    // otherwise mis-detect the bank.
+    const headerText = rows
+      .slice(0, headerIdx)
+      .map((r) => (r ?? []).map((c) => clean(c)).join(" "))
+      .join(" ");
+    const bank = detectBank(headerText);
+    const holder = holderFirstName(headerText);
 
     for (let i = headerIdx + 1; i < rows.length; i += 1) {
       const row = rows[i] ?? [];
@@ -78,28 +149,30 @@ export async function parseSpreadsheet(file: File): Promise<ParsedStatement> {
         skipped += 1;
         continue;
       }
-      const wd = num(row[col.wd]);
-      const dep = num(row[col.dep]);
-      let type: "income" | "expense";
+      const outAmt = num(row[col.out]);
+      const inAmt = num(row[col.in]);
+      let type: TxType;
       let amount: number;
-      if (wd && wd > 0) {
+      if (outAmt && outAmt > 0) {
         type = "expense";
-        amount = wd;
-      } else if (dep && dep > 0) {
+        amount = outAmt;
+      } else if (inAmt && inAmt > 0) {
         type = "income";
-        amount = dep;
+        amount = inAmt;
       } else {
         skipped += 1;
         continue;
       }
 
-      const narration = String(row[col.narr] ?? "").trim();
+      const narration = clean(row[col.narr]);
+      if (isSelfNarration(narration, holder, type === "expense")) type = "self";
       const payee = bankPayee(narration);
       const catText = narration.replace(
-        /^(UPI|NEFT|IMPS|RTGS|POS|ATW|ATM|ACH|NACH|MMT|IB|INB|CMS|INT|EMI)[-\s:]+/i,
+        /^(UPI|NEFT|IMPS|RTGS|POS|ATW|ATM|ACH|NACH|MMT|IB|INB|CMS|INT|EMI|WDL TFR|DIRECT DR)[-\s:]+/i,
         "",
       );
-      const { category } = categorizePayee(catText || payee, type);
+      const category =
+        type === "self" ? "Transfers" : categorizePayee(catText || payee, type).category;
       transactions.push({
         type,
         amount: roundMoney(amount),
@@ -107,6 +180,7 @@ export async function parseSpreadsheet(file: File): Promise<ParsedStatement> {
         payee,
         date,
         source: "pdf",
+        bank,
       });
     }
     if (transactions.length > 0) break;

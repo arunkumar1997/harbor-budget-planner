@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { currentMonth, roundMoney } from "@/lib/format";
 
-export type TxType = "income" | "expense";
+export type TxType = "income" | "expense" | "self";
 
 export interface Transaction {
   id: string;
@@ -13,6 +13,7 @@ export interface Transaction {
   date: string;
   source: "manual" | "pdf";
   statementId?: string;
+  bank?: string;
 }
 
 export interface SavingsGoal {
@@ -27,6 +28,7 @@ export interface Statement {
   importedAt: string;
   count: number;
   total: number;
+  bank?: string;
 }
 
 export interface DraftTransaction {
@@ -37,6 +39,7 @@ export interface DraftTransaction {
   date: string;
   source: "manual" | "pdf";
   statementId?: string;
+  bank?: string;
 }
 
 interface BudgetState {
@@ -161,6 +164,7 @@ export const useBudgetStore = create<BudgetState>()(
           importedAt: new Date().toISOString(),
           count: next.length,
           total,
+          bank: next.find((t) => t.bank)?.bank,
         };
         set({
           transactions: [...next, ...get().transactions],
@@ -210,14 +214,17 @@ export const useBudgetStore = create<BudgetState>()(
 export function monthTotals(transactions: Transaction[], month: string) {
   let income = 0;
   let expense = 0;
+  let self = 0;
   for (const tx of transactions) {
     if (!tx.date.startsWith(month)) continue;
     if (tx.type === "income") income += tx.amount;
-    else expense += tx.amount;
+    else if (tx.type === "expense") expense += tx.amount;
+    else self += tx.amount; // self-transfers are excluded from in/out
   }
   return {
     income: roundMoney(income),
     expense: roundMoney(expense),
+    self: roundMoney(self),
     remaining: roundMoney(income - expense),
   };
 }

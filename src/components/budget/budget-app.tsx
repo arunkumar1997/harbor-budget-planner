@@ -35,7 +35,7 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type Filter = "all" | "expense" | "income";
+type Filter = "all" | "expense" | "income" | "self";
 
 export function BudgetApp() {
   const transactions = useBudgetStore((s) => s.transactions);
@@ -157,6 +157,12 @@ export function BudgetApp() {
               <span className="tabular-nums text-income">{formatMoney(totals.income)}</span> in
               <span className="mx-2 text-border-strong">·</span>
               <span className="tabular-nums text-expense">{formatMoney(totals.expense)}</span> out
+              {totals.self > 0 ? (
+                <>
+                  <span className="mx-2 text-border-strong">·</span>
+                  <span className="tabular-nums">{formatMoney(totals.self)}</span> self
+                </>
+              ) : null}
             </p>
           </div>
           <div className="flex items-center gap-1 self-start rounded-md bg-muted p-1">
@@ -313,7 +319,7 @@ export function BudgetApp() {
                 </Button>
               ) : null}
               <div className="flex rounded-md bg-muted p-1">
-                {(["all", "expense", "income"] as const).map((value) => (
+                {(["all", "expense", "income", "self"] as const).map((value) => (
                   <button
                     key={value}
                     type="button"
@@ -325,7 +331,13 @@ export function BudgetApp() {
                         : "text-muted-foreground",
                     )}
                   >
-                    {value === "all" ? "All" : value === "expense" ? "Out" : "In"}
+                    {value === "all"
+                      ? "All"
+                      : value === "expense"
+                        ? "Out"
+                        : value === "income"
+                          ? "In"
+                          : "Self"}
                   </button>
                 ))}
               </div>
@@ -365,22 +377,30 @@ export function BudgetApp() {
                     <span className="min-w-0">
                       <span className="flex items-center gap-2">
                         <span className="truncate font-medium">{tx.payee}</span>
-                        {tx.source === "pdf" ? (
+                        {tx.bank ? (
+                          <Badge variant="secondary" className="shrink-0">
+                            {tx.bank}
+                          </Badge>
+                        ) : tx.source === "pdf" ? (
                           <Badge className="shrink-0">Statement</Badge>
                         ) : null}
                       </span>
                       <span className="mt-0.5 flex gap-2 text-xs text-muted-foreground">
-                        <span>{tx.category}</span>
+                        <span>{tx.type === "self" ? "Self transfer" : tx.category}</span>
                         <span className="tabular-nums">{formatShortDate(tx.date)}</span>
                       </span>
                     </span>
                     <span
                       className={cn(
                         "text-sm font-medium tabular-nums",
-                        tx.type === "income" ? "text-income" : "text-expense",
+                        tx.type === "income"
+                          ? "text-income"
+                          : tx.type === "self"
+                            ? "text-muted-foreground"
+                            : "text-expense",
                       )}
                     >
-                      {tx.type === "income" ? "+" : "−"}
+                      {tx.type === "income" ? "+" : tx.type === "self" ? "⇄ " : "−"}
                       {formatMoney(tx.amount)}
                     </span>
                   </button>

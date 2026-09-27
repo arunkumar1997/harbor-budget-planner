@@ -85,6 +85,8 @@ export function categorizePayee(
   };
 }
 
-export function categoriesFor(type: "income" | "expense") {
-  return type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+export function categoriesFor(type: "income" | "expense" | "self") {
+  if (type === "income") return INCOME_CATEGORIES;
+  if (type === "self") return ["Transfers", "Other"] as const;
+  return EXPENSE_CATEGORIES;
 }
