@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, FileUp, Pencil, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileUp, Files, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -7,8 +7,19 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { CategoryChart } from "@/components/budget/category-chart";
 import { ImportDialog } from "@/components/budget/import-dialog";
+import { StatementsDialog } from "@/components/budget/statements-dialog";
 import { TransactionDialog } from "@/components/budget/transaction-dialog";
 import {
   monthTotals,
@@ -37,10 +48,13 @@ export function BudgetApp() {
   const updateTransaction = useBudgetStore((s) => s.updateTransaction);
   const deleteTransaction = useBudgetStore((s) => s.deleteTransaction);
   const importTransactions = useBudgetStore((s) => s.importTransactions);
+  const clearMonth = useBudgetStore((s) => s.clearMonth);
 
   const [filter, setFilter] = useState<Filter>("all");
   const [formOpen, setFormOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [statementsOpen, setStatementsOpen] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [editingGoal, setEditingGoal] = useState(false);
 
@@ -59,6 +73,11 @@ export function BudgetApp() {
       .filter((tx) => (filter === "all" ? true : tx.type === filter))
       .sort((a, b) => b.date.localeCompare(a.date) || b.payee.localeCompare(a.payee));
   }, [transactions, month, filter]);
+
+  const monthCount = useMemo(
+    () => transactions.filter((tx) => tx.date.startsWith(month)).length,
+    [transactions, month],
+  );
 
   const goalPct = goal.target <= 0 ? 0 : Math.min(100, (goal.saved / goal.target) * 100);
   const remainingTone = totals.remaining >= 0 ? "text-foreground" : "text-expense";
@@ -93,6 +112,15 @@ export function BudgetApp() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-label="Imported statements"
+              onClick={() => setStatementsOpen(true)}
+            >
+              <Files />
+              <span className="hidden sm:inline">Statements</span>
+            </Button>
             <Button
               variant="secondary"
               size="sm"
@@ -272,22 +300,35 @@ export function BudgetApp() {
                 Tap a row to edit. Import a PDF to pull card expenses in.
               </p>
             </div>
-            <div className="flex rounded-md bg-muted p-1">
-              {(["all", "expense", "income"] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setFilter(value)}
-                  className={cn(
-                    "h-9 rounded-sm px-3 text-sm capitalize transition-colors duration-150",
-                    filter === value
-                      ? "bg-card font-medium shadow-[var(--shadow-border)]"
-                      : "text-muted-foreground",
-                  )}
+            <div className="flex items-center gap-2">
+              {monthCount > 0 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-expense"
+                  onClick={() => setConfirmClear(true)}
                 >
-                  {value === "all" ? "All" : value === "expense" ? "Out" : "In"}
-                </button>
-              ))}
+                  <Trash2 />
+                  <span className="hidden sm:inline">Clear month</span>
+                </Button>
+              ) : null}
+              <div className="flex rounded-md bg-muted p-1">
+                {(["all", "expense", "income"] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setFilter(value)}
+                    className={cn(
+                      "h-9 rounded-sm px-3 text-sm capitalize transition-colors duration-150",
+                      filter === value
+                        ? "bg-card font-medium shadow-[var(--shadow-border)]"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {value === "all" ? "All" : value === "expense" ? "Out" : "In"}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <Separator />
@@ -369,6 +410,32 @@ export function BudgetApp() {
         onOpenChange={setImportOpen}
         onImport={importTransactions}
       />
+      <StatementsDialog open={statementsOpen} onOpenChange={setStatementsOpen} />
+
+      <AlertDialog open={confirmClear} onOpenChange={setConfirmClear}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear {formatMonthLabel(month)}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              All {monthCount} {monthCount === 1 ? "entry" : "entries"} in{" "}
+              {formatMonthLabel(month)} — added and imported — will be deleted. This can’t be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-expense text-primary-foreground hover:bg-expense/90"
+              onClick={() => {
+                clearMonth(month);
+                setConfirmClear(false);
+              }}
+            >
+              Clear month
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

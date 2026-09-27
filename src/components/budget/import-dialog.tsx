@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onImport: (rows: DraftTransaction[]) => number;
+  onImport: (rows: DraftTransaction[], meta?: { name?: string }) => number;
 }
 
 export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps) {
@@ -36,6 +36,7 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
   const [password, setPassword] = useState("");
   const [needPassword, setNeedPassword] = useState(false);
   const [pwError, setPwError] = useState("");
+  const [fileName, setFileName] = useState("");
 
   function reset() {
     setBusy(false);
@@ -46,12 +47,14 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
     setPassword("");
     setNeedPassword(false);
     setPwError("");
+    setFileName("");
     if (inputRef.current) inputRef.current.value = "";
   }
 
   async function handleFile(file: File, pw?: string) {
     setBusy(true);
     setStatus(pw ? "Unlocking statement…" : "Reading statement…");
+    setFileName(file.name);
     try {
       const { extractPdfFromFile } = await import("@/lib/pdf-text");
       const lines = await extractPdfFromFile(file, pw);
@@ -90,6 +93,7 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
   async function handleSample() {
     setBusy(true);
     setStatus("Loading sample statement…");
+    setFileName("Sample statement");
     try {
       const res = await fetch("/sample-statement.pdf");
       const buffer = await res.arrayBuffer();
@@ -148,7 +152,7 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
 
   function confirmImport() {
     const chosen = rows.filter((_, i) => selected.has(i));
-    const added = onImport(chosen);
+    const added = onImport(chosen, { name: fileName });
     if (added === 0) toast.message("Those entries are already in your ledger.");
     else toast.success(`Imported ${added} ${added === 1 ? "expense" : "expenses"}.`);
     reset();

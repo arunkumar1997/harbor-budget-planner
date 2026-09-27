@@ -12,12 +12,21 @@ export interface Transaction {
   payee: string;
   date: string;
   source: "manual" | "pdf";
+  statementId?: string;
 }
 
 export interface SavingsGoal {
   name: string;
   target: number;
   saved: number;
+}
+
+export interface Statement {
+  id: string;
+  name: string;
+  importedAt: string;
+  count: number;
+  total: number;
 }
 
 export interface DraftTransaction {
@@ -27,17 +36,21 @@ export interface DraftTransaction {
   payee: string;
   date: string;
   source: "manual" | "pdf";
+  statementId?: string;
 }
 
 interface BudgetState {
   transactions: Transaction[];
+  statements: Statement[];
   goal: SavingsGoal;
   month: string;
   setMonth: (month: string) => void;
   addTransaction: (draft: DraftTransaction) => void;
   updateTransaction: (id: string, patch: Partial<DraftTransaction>) => void;
   deleteTransaction: (id: string) => void;
-  importTransactions: (drafts: DraftTransaction[]) => number;
+  importTransactions: (drafts: DraftTransaction[], meta?: { name?: string }) => number;
+  deleteStatement: (id: string) => void;
+  clearMonth: (month: string) => void;
   setGoal: (patch: Partial<SavingsGoal>) => void;
   applyLeftover: (amount: number) => void;
 }
@@ -109,6 +122,7 @@ export const useBudgetStore = create<BudgetState>()(
   persist(
     (set, get) => ({
       transactions: SEED,
+      statements: [],
       goal: {
         name: "Emergency fund",
         target: 300000,
@@ -128,19 +142,46 @@ export const useBudgetStore = create<BudgetState>()(
         }),
       deleteTransaction: (id) =>
         set({ transactions: get().transactions.filter((tx) => tx.id !== id) }),
-      importTransactions: (drafts) => {
+      importTransactions: (drafts, meta) => {
         const existing = new Set(get().transactions.map(fingerprint));
+        const statementId = makeId();
         const next: Transaction[] = [];
         for (const draft of drafts) {
-          const tx = withId(draft);
+          const tx = withId({ ...draft, statementId });
           const key = fingerprint(tx);
           if (existing.has(key)) continue;
           existing.add(key);
           next.push(tx);
         }
         if (next.length === 0) return 0;
-        set({ transactions: [...next, ...get().transactions] });
+        const total = roundMoney(next.reduce((sum, t) => sum + t.amount, 0));
+        const statement: Statement = {
+          id: statementId,
+          name: meta?.name?.trim() || "Imported statement",
+          importedAt: new Date().toISOString(),
+          count: next.length,
+          total,
+        };
+        set({
+          transactions: [...next, ...get().transactions],
+          statements: [statement, ...get().statements],
+        });
         return next.length;
+      },
+      deleteStatement: (id) =>
+        set({
+          transactions: get().transactions.filter((tx) => tx.statementId !== id),
+          statements: get().statements.filter((s) => s.id !== id),
+        }),
+      clearMonth: (month) => {
+        const remaining = get().transactions.filter((tx) => !tx.date.startsWith(month));
+        const liveIds = new Set(
+          remaining.map((tx) => tx.statementId).filter(Boolean),
+        );
+        set({
+          transactions: remaining,
+          statements: get().statements.filter((s) => liveIds.has(s.id)),
+        });
       },
       setGoal: (patch) => set({ goal: { ...get().goal, ...patch } }),
       applyLeftover: (amount) => {
@@ -158,6 +199,7 @@ export const useBudgetStore = create<BudgetState>()(
       skipHydration: true,
       partialize: (state) => ({
         transactions: state.transactions,
+        statements: state.statements,
         goal: state.goal,
         month: state.month,
       }),
