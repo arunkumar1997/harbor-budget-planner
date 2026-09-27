@@ -56,6 +56,7 @@ interface BudgetState {
   clearMonth: (month: string) => void;
   setGoal: (patch: Partial<SavingsGoal>) => void;
   applyLeftover: (amount: number) => void;
+  coverFromSavings: (amount: number) => void;
 }
 
 const SEED: Transaction[] = [
@@ -211,6 +212,32 @@ export const useBudgetStore = create<BudgetState>()(
           goal: {
             ...get().goal,
             saved: roundMoney(get().goal.saved + amt),
+          },
+        });
+      },
+      coverFromSavings: (amount) => {
+        const amt = roundMoney(amount);
+        if (amt <= 0) return;
+        // Overspent this month: pull the shortfall from the savings goal. Record
+        // it as income ("Withdrawn from savings") so the month's Remaining returns
+        // to zero, and reduce the goal.
+        const month = get().month;
+        const [y, m] = month.split("-").map(Number);
+        const lastDay = new Date(y ?? 2026, m ?? 1, 0).getDate();
+        const date = `${month}-${String(lastDay).padStart(2, "0")}`;
+        const tx = withId({
+          type: "income",
+          amount: amt,
+          category: "Transfers",
+          payee: "Withdrawn from savings",
+          date,
+          source: "manual",
+        });
+        set({
+          transactions: [tx, ...get().transactions],
+          goal: {
+            ...get().goal,
+            saved: roundMoney(Math.max(0, get().goal.saved - amt)),
           },
         });
       },

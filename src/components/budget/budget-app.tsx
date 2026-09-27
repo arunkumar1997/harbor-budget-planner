@@ -44,6 +44,7 @@ export function BudgetApp() {
   const goal = useBudgetStore((s) => s.goal);
   const setGoal = useBudgetStore((s) => s.setGoal);
   const applyLeftover = useBudgetStore((s) => s.applyLeftover);
+  const coverFromSavings = useBudgetStore((s) => s.coverFromSavings);
   const addTransaction = useBudgetStore((s) => s.addTransaction);
   const updateTransaction = useBudgetStore((s) => s.updateTransaction);
   const deleteTransaction = useBudgetStore((s) => s.deleteTransaction);
@@ -55,6 +56,7 @@ export function BudgetApp() {
   const [importOpen, setImportOpen] = useState(false);
   const [statementsOpen, setStatementsOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmCover, setConfirmCover] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [editingGoal, setEditingGoal] = useState(false);
 
@@ -271,17 +273,30 @@ export function BudgetApp() {
                   <p className="mt-2 text-xs text-muted-foreground">
                     {formatMoney(Math.max(0, goal.target - goal.saved))} to go · {Math.round(goalPct)}%
                   </p>
-                  {totals.remaining > 0 ? (
+                  {totals.remaining >= 0 ? (
                     <Button
                       type="button"
                       variant="secondary"
                       size="sm"
                       className="mt-4"
+                      disabled={totals.remaining === 0}
                       onClick={() => applyLeftover(totals.remaining)}
                     >
-                      Apply leftover
+                      {totals.remaining === 0
+                        ? "Nothing left to apply"
+                        : `Apply ${formatMoney(totals.remaining)} to savings`}
                     </Button>
-                  ) : null}
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="mt-4 text-expense"
+                      onClick={() => setConfirmCover(true)}
+                    >
+                      Cover {formatMoney(Math.abs(totals.remaining))} from savings
+                    </Button>
+                  )}
                 </>
               )}
             </CardContent>
@@ -452,6 +467,30 @@ export function BudgetApp() {
               }}
             >
               Clear month
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmCover} onOpenChange={setConfirmCover}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cover the shortfall from savings?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You spent {formatMoney(Math.abs(totals.remaining))} more than you earned in{" "}
+              {formatMonthLabel(month)}. Deduct {formatMoney(Math.abs(totals.remaining))} from your
+              savings goal to balance the month? This adds a “Withdrawn from savings” entry.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Not now</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                coverFromSavings(Math.abs(totals.remaining));
+                setConfirmCover(false);
+              }}
+            >
+              Deduct from savings
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
