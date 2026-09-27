@@ -189,11 +189,28 @@ export const useBudgetStore = create<BudgetState>()(
       },
       setGoal: (patch) => set({ goal: { ...get().goal, ...patch } }),
       applyLeftover: (amount) => {
-        if (amount <= 0) return;
+        const amt = roundMoney(amount);
+        if (amt <= 0) return;
+        // Record the move as a "Transfer to savings" expense so the month's
+        // Remaining actually drops to zero (and can't be applied twice), and
+        // add it to the goal.
+        const month = get().month;
+        const [y, m] = month.split("-").map(Number);
+        const lastDay = new Date(y ?? 2026, m ?? 1, 0).getDate();
+        const date = `${month}-${String(lastDay).padStart(2, "0")}`;
+        const tx = withId({
+          type: "expense",
+          amount: amt,
+          category: "Transfers",
+          payee: "Transfer to savings",
+          date,
+          source: "manual",
+        });
         set({
+          transactions: [tx, ...get().transactions],
           goal: {
             ...get().goal,
-            saved: roundMoney(get().goal.saved + amount),
+            saved: roundMoney(get().goal.saved + amt),
           },
         });
       },
