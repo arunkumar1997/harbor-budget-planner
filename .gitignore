@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build output / caches (Vercel rebuilds these from source)
+.vercel/
+dist/
+.output/
+.nitro/
+.vite/
+
+# Env & secrets — never commit these
+.env
+.env.*
+!.env.example
+
+# Logs & OS cruft
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
