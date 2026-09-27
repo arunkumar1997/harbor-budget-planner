@@ -57,6 +57,16 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
     setStatus(pw ? "Unlocking statement…" : "Reading statement…");
     setFileName(file.name);
     try {
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith(".xls") || lower.endsWith(".xlsx") || lower.endsWith(".csv")) {
+        setStatus("Reading spreadsheet…");
+        const { parseSpreadsheet } = await import("@/lib/parse-spreadsheet");
+        const result = await parseSpreadsheet(file);
+        setPendingFile(null);
+        setNeedPassword(false);
+        showDrafts(result.transactions);
+        return;
+      }
       const { extractStatementFromFile } = await import("@/lib/pdf-text");
       const { lines, rows } = await extractStatementFromFile(file, pw);
       setPendingFile(null);
@@ -79,7 +89,7 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
       toast.error(
         error instanceof Error && error.message.includes("ZIP")
           ? error.message
-          : "Could not read that PDF.",
+          : "Could not read that file.",
       );
       setBusy(false);
       setStatus("");
@@ -132,6 +142,16 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
       return;
     }
 
+    showDrafts(drafts);
+  }
+
+  function showDrafts(drafts: DraftTransaction[]) {
+    if (drafts.length === 0) {
+      toast.error("No transactions found in that statement.");
+      setBusy(false);
+      setStatus("");
+      return;
+    }
     setRows(drafts);
     setSelected(new Set(drafts.map((_, i) => i)));
     setBusy(false);
@@ -177,7 +197,7 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
         <DialogHeader>
           <DialogTitle>Import statement</DialogTitle>
           <DialogDescription>
-            Upload an exported bank or card PDF. Harbor reads the charges and maps them to
+            Upload an exported bank or card statement — PDF or Excel (.xls/.xlsx). Harbor reads the charges and maps them to
             categories so you can review before they hit your ledger.
           </DialogDescription>
         </DialogHeader>
@@ -232,16 +252,16 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
                   ? status || "Working…"
                   : needPassword
                     ? "Choose a different file"
-                    : "Drop a PDF or browse"}
+                    : "Drop a PDF or Excel file, or browse"}
               </span>
               <span className="text-xs text-muted-foreground">
-                Bank &amp; card PDFs work best · password-protected PDFs supported
+                PDF or Excel (.xls/.xlsx) · Excel is most accurate · password-protected PDFs supported
               </span>
             </button>
             <input
               ref={inputRef}
               type="file"
-              accept="application/pdf,.pdf,application/zip,.zip"
+              accept="application/pdf,.pdf,.xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip,.zip"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];

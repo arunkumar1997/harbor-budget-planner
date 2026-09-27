@@ -33,7 +33,7 @@ function toIso(ddmmyy: string): string | null {
 }
 
 // Turn an HDFC UPI/NEFT narration into a readable payee.
-function bankPayee(narration: string): string {
+export function bankPayee(narration: string): string {
   let s = narration.replace(/\s+/g, " ").trim();
   const chan = s.match(
     /^(UPI|NEFT|IMPS|RTGS|POS|ATW|ATM|ACH|NACH|MMT|IB|INB|CMS|INT|EMI)[-\s:]+/i,
