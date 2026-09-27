@@ -13,7 +13,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { formatMoney } from "@/lib/format";
-import { parseStatementLines, parsedToDrafts } from "@/lib/parse-statement";
+import { parsedToDrafts } from "@/lib/parse-statement";
+import { parseAnyStatement } from "@/lib/statement-parsers";
 import { parseStatementWithAi } from "@/lib/statement-ai";
 import { categoriesFor } from "@/lib/categories";
 import type { DraftTransaction } from "@/lib/budget-store";
@@ -104,7 +105,7 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
   }
 
   async function parseLines(lines: string[]) {
-    const local = parseStatementLines(lines);
+    const local = parseAnyStatement(lines);
     let drafts = local.transactions;
 
     if (drafts.length === 0) {

@@ -31,7 +31,7 @@ const PAYEE_RULES: { pattern: RegExp; category: string; type: "income" | "expens
   { pattern: /freelance|invoice|1099|consult/i, category: "Freelance", type: "income" },
   { pattern: /interest|dividend|cashback|reward/i, category: "Interest", type: "income" },
   { pattern: /refund|reversal|reimb/i, category: "Refund", type: "income" },
-  { pattern: /card payment|payment received|net banking|bbps|autopay/i, category: "Refund", type: "income" },
+  { pattern: /card payment|payment received|net banking/i, category: "Refund", type: "income" },
 
   // Card fees, taxes and finance charges (HDFC / Indian statements)
   { pattern: /igst|cgst|sgst|\bgst\b|finance charge|late fee|interest charge|dcc transaction|markup|surcharge|annual fee|joining fee|cash advance fee|over ?limit/i, category: "Fees & Charges", type: "expense" },
@@ -66,8 +66,8 @@ const PAYEE_RULES: { pattern: RegExp; category: string; type: "income" | "expens
   // Travel
   { pattern: /makemytrip|goibibo|cleartrip|ixigo|indigo|vistara|air india|spicejet|akasa|airline|hotel|oyo|airbnb|travel|booking\.com/i, category: "Travel", type: "expense" },
 
-  // Transfers
-  { pattern: /transfer|upi|imps|neft|rtgs|to savings|self/i, category: "Transfers", type: "expense" },
+  // Transfers (rails like UPI/NEFT alone are not a category — only explicit transfers)
+  { pattern: /\btransfer\b|to savings|own account|self ?transfer/i, category: "Transfers", type: "expense" },
 ];
 
 export function categorizePayee(
