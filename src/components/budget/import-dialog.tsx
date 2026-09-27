@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { formatMoney } from "@/lib/format";
 import { parsedToDrafts } from "@/lib/parse-statement";
 import { parseAnyStatement } from "@/lib/statement-parsers";
+import type { PdfRow } from "@/lib/pdf-text";
 import { parseStatementWithAi } from "@/lib/statement-ai";
 import { categoriesFor } from "@/lib/categories";
 import type { DraftTransaction } from "@/lib/budget-store";
@@ -56,13 +57,13 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
     setStatus(pw ? "Unlocking statement…" : "Reading statement…");
     setFileName(file.name);
     try {
-      const { extractPdfFromFile } = await import("@/lib/pdf-text");
-      const lines = await extractPdfFromFile(file, pw);
+      const { extractStatementFromFile } = await import("@/lib/pdf-text");
+      const { lines, rows } = await extractStatementFromFile(file, pw);
       setPendingFile(null);
       setNeedPassword(false);
       setPassword("");
       setPwError("");
-      await parseLines(lines);
+      await parseLines(lines, rows);
     } catch (error) {
       const name = (error as { name?: string })?.name;
       if (name === "PdfPasswordError") {
@@ -97,9 +98,9 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
     try {
       const res = await fetch("/sample-statement.pdf");
       const buffer = await res.arrayBuffer();
-      const { extractPdfLines } = await import("@/lib/pdf-text");
-      const lines = await extractPdfLines(buffer);
-      await parseLines(lines);
+      const { extractStatementFromBytes } = await import("@/lib/pdf-text");
+      const { lines, rows } = await extractStatementFromBytes(buffer);
+      await parseLines(lines, rows);
     } catch (error) {
       console.error(error);
       toast.error("Could not load the sample statement.");
@@ -108,8 +109,8 @@ export function ImportDialog({ open, onOpenChange, onImport }: ImportDialogProps
     }
   }
 
-  async function parseLines(lines: string[]) {
-    const local = parseAnyStatement(lines);
+  async function parseLines(lines: string[], rows?: PdfRow[]) {
+    const local = parseAnyStatement(lines, rows);
     let drafts = local.transactions;
 
     if (drafts.length === 0) {
